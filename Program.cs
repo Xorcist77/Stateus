@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
@@ -8,8 +8,10 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace KeyState {
+namespace Stateus {
+
   class Program {
+
     [DllImport("user32.dll")]
     public static extern Int32 GetAsyncKeyState(Int32 i);
 
@@ -94,9 +96,11 @@ namespace KeyState {
           File.AppendAllText(FileName, stateString + Environment.NewLine);
           lastInputState = currInputState.ToList();
         }
+
       }
 
     }
 
   }
+
 }
