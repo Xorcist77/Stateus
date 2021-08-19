@@ -29,10 +29,10 @@ jobs:
         uses: NuGet/setup-nuget@v1
      
       - name: Restore NuGet Packages
-        run: nuget restore Statues.sln
+        run: nuget restore Stateus.sln
         
       - name: Build and Publish Web App
-        run: msbuild Statues.sln /p:Configuration=Release
+        run: msbuild Stateus.sln /p:Configuration=Release
         
       - name: Upload Artifact
         uses: actions/upload-artifact@v2
