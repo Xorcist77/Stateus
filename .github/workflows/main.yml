@@ -27,11 +27,14 @@ jobs:
 
       - name: Setup NuGet
         uses: NuGet/setup-nuget@v1
-     
+        
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v1.0.0
+      
       - name: Restore NuGet Packages
         run: nuget restore Stateus.sln
         
-      - name: Build and Publish Web App
+      - name: Build Solution
         run: msbuild Stateus.sln /p:Configuration=Release
         
       - name: Upload Artifact
