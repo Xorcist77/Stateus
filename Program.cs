@@ -19,6 +19,11 @@ namespace Stateus {
     [DllImport("user32.dll")]
     static extern Int32 MapVirtualKey(UInt32 uCode, UInt32 uMapType);
 
+    static String HandleUnknown(Object val) {
+      String str = ((String)val).Trim();
+      return (String.IsNullOrEmpty(str)) ? "Unknown" : str;
+    }
+
     static String MemTypeMap(Int32 memType) {
       switch (memType) {
         case  1: return "Other";
@@ -94,6 +99,11 @@ namespace Stateus {
         PollingRate = 5;
       }
 
+      Boolean SystemInfo;
+      if (!Boolean.TryParse(ConfigurationManager.AppSettings["SystemInfo.show"], out SystemInfo)) {
+        SystemInfo = false;
+      }
+      
     //Read Assembly Info
       String AppName = Assembly.GetEntryAssembly().GetName().Name;
       String AppVers = Assembly.GetEntryAssembly().GetName().Version.ToString();
@@ -105,60 +115,66 @@ namespace Stateus {
       Console.WriteLine(initString + Environment.NewLine);
       File.AppendAllText(FileName, initString + Environment.NewLine + Environment.NewLine);
 
-    //System Information
-      String info = String.Empty;
-      using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_BaseBoard")) {
-        foreach (ManagementObject obj in searcher.Get()) {
-          info += $"  Motherboard: {obj["Manufacturer"]} - {obj["Product"]}{Environment.NewLine}";
-        }
-      }
-      using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_OperatingSystem")) {
-        foreach (ManagementObject obj in searcher.Get()) {
-          info += $"  Environment: {obj["Caption"]} - {obj["OSArchitecture"]} (v{obj["Version"]}){Environment.NewLine}";
-        }
-      }
-      using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_Processor")) {
-        foreach (ManagementObject obj in searcher.Get()) {
-          info += $"    Processor: {obj["Name"]}{Environment.NewLine}";
-        }
-      }
-      using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_PhysicalMemory")) {
-        foreach (ManagementObject obj in searcher.Get()) {
-          info += $"       Memory: {obj["Manufacturer"]} - {obj["PartNumber"]} {MemTypeMap(Convert.ToInt32(obj["SMBIOSMemoryType"]))} ({Convert.ToInt64(obj["Capacity"]) / (1024 * 1024 * 1024) + "GB"}) - {obj["Speed"]}MHz{Environment.NewLine}";
-        }
-      }
-      using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_VideoController")) {
-        foreach (ManagementObject obj in searcher.Get()) {
-          if (Convert.ToInt32(obj["Availability"]) == 3) {
-            info += $"   Video Card: {obj["Name"]}{Environment.NewLine}";
+      //System Information
+      if (SystemInfo) {
+        String info = String.Empty;
+        using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_BaseBoard")) {
+          foreach (ManagementObject obj in searcher.Get()) {
+            info += $" MOBO: {HandleUnknown(obj["Manufacturer"])} - {HandleUnknown(obj["Product"])}{Environment.NewLine}";
           }
         }
-      }
-      using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_SoundDevice")) {
-        foreach (ManagementObject obj in searcher.Get()) {
-          if (Convert.ToInt32(obj["StatusInfo"]) == 3) {
-            info += $"   Sound Card: {obj["Name"]}{Environment.NewLine}";
+        using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_OperatingSystem")) {
+          foreach (ManagementObject obj in searcher.Get()) {
+            info += $"   OS: {HandleUnknown(obj["Caption"])} - {HandleUnknown(obj["OSArchitecture"])} (v{HandleUnknown(obj["Version"])}){Environment.NewLine}";
           }
         }
-      }
-      using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_USBController")) {
-        foreach (ManagementObject obj in searcher.Get()) {
-          info += $"          USB: {obj["Name"]} {Environment.NewLine}";
+        using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_Processor")) {
+          foreach (ManagementObject obj in searcher.Get()) {
+            info += $"  CPU: {HandleUnknown(obj["Name"])}{Environment.NewLine}";
+          }
         }
-      }
-      using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_Keyboard")) {
-        foreach (ManagementObject obj in searcher.Get()) {
-          info += $"     Keyboard: {obj["Name"]} - {obj["Description"]}{Environment.NewLine}";
+        using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_PhysicalMemory")) {
+          foreach (ManagementObject obj in searcher.Get()) {
+            try {
+              info += $"  RAM: {HandleUnknown(obj["BankLabel"])} - {HandleUnknown(obj["Manufacturer"])} - {HandleUnknown(obj["PartNumber"])} {MemTypeMap(Convert.ToInt32(obj["SMBIOSMemoryType"]))} ({Convert.ToInt64(obj["Capacity"]) / (1024 * 1024 * 1024) + "GB"}) - {obj["Speed"]}MHz{Environment.NewLine}";
+            }
+            catch { //SMBIOSMemoryType unavailable, fall back on MemoryType
+              info += $"  RAM: {HandleUnknown(obj["BankLabel"])} - {HandleUnknown(obj["Manufacturer"])} - {HandleUnknown(obj["PartNumber"])} {MemTypeMap(Convert.ToInt32(obj["MemoryType"]))} ({Convert.ToInt64(obj["Capacity"]) / (1024 * 1024 * 1024) + "GB"}) - {obj["Speed"]}MHz{Environment.NewLine}";
+            }
+          }
         }
-      }
-      using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_PointingDevice")) {
-        foreach (ManagementObject obj in searcher.Get()) {
-          info += $"      Pointer: {obj["Name"]} - {obj["Description"]}{Environment.NewLine}";
+        using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_VideoController")) {
+          foreach (ManagementObject obj in searcher.Get()) {
+            if (Convert.ToInt32(obj["Availability"]) == 3) {
+              info += $"  VID: {HandleUnknown(obj["Name"])}{Environment.NewLine}";
+            }
+          }
         }
+        using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_SoundDevice")) {
+          foreach (ManagementObject obj in searcher.Get()) {
+            if (Convert.ToInt32(obj["StatusInfo"]) == 3) {
+              info += $"  SND: {HandleUnknown(obj["Name"])}{Environment.NewLine}";
+            }
+          }
+        }
+        using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_USBController")) {
+          foreach (ManagementObject obj in searcher.Get()) {
+            info += $"  USB: {HandleUnknown(obj["Name"])} {Environment.NewLine}";
+          }
+        }
+        using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_Keyboard")) {
+          foreach (ManagementObject obj in searcher.Get()) {
+            info += $"  KEY: {HandleUnknown(obj["Name"])} - {HandleUnknown(obj["Description"])}{Environment.NewLine}";
+          }
+        }
+        using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_PointingDevice")) {
+          foreach (ManagementObject obj in searcher.Get()) {
+            info += $"  PTR: {HandleUnknown(obj["Name"])} - {HandleUnknown(obj["Description"])}{Environment.NewLine}";
+          }
+        }
+        Console.Write(info);
+        File.AppendAllText(FileName, info);
       }
-
-      Console.Write(info);
-      File.AppendAllText(FileName, info);
 
     //Data Initialization
       Console.WriteLine();
