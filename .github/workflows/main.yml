@@ -4,9 +4,8 @@ name: CI
 
 # Controls when the workflow will run
 on:
-  # Triggers the workflow on tagged push events (with the pattern 'v*.*.*' but only for the main branch
+  # Triggers the workflow on tagged push events (with the pattern 'v*.*.*')
   push:
-    branches: [ main ]
     tags:
     - 'v*.*.*'
 
