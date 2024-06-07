@@ -1,12 +1,19 @@
 using System;
 using System.Collections.Generic;
+using System.CommandLine;
+using System.CommandLine.Binding;
+using System.CommandLine.Builder;
+using System.CommandLine.Help;
+using System.CommandLine.Parsing;
 using System.Configuration;
 using System.IO;
 using System.Linq;
 using System.Management;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Remoting.Contexts;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace Stateus {
@@ -26,15 +33,15 @@ namespace Stateus {
 
     static String MemTypeMap(Int32 memType) {
       switch (memType) {
-        case  1: return "Other";
-        case  2: return "DRAM";
-        case  3: return "DRAM (Synchronous)";
-        case  4: return "DRAM (Cache)";
-        case  5: return "EDO";
-        case  6: return "EDRAM";
-        case  7: return "VRAM";
-        case  8: return "SRAM";
-        case  9: return "RAM";
+        case 1: return "Other";
+        case 2: return "DRAM";
+        case 3: return "DRAM (Synchronous)";
+        case 4: return "DRAM (Cache)";
+        case 5: return "EDO";
+        case 6: return "EDRAM";
+        case 7: return "VRAM";
+        case 8: return "SRAM";
+        case 9: return "RAM";
         case 10: return "ROM";
         case 11: return "FLASH";
         case 12: return "EEPROM";
@@ -88,22 +95,93 @@ namespace Stateus {
       return keyFace;
     }
 
-    static void Main(String[] args) {
-    //Process Config Options
-      Int32 PollingRate;
-      if (Int32.TryParse(ConfigurationManager.AppSettings["PollingRate.ms"], out PollingRate)) {
-        if (PollingRate <= 0) {
-          PollingRate = 5;
-        }
-      } else {
-        PollingRate = 5;
+
+    public class AppOptions {
+      public Int32 PollingRate { get; set; }
+      public Boolean DisplayInfo { get; set; }
+    }
+
+    public class AppOptionsBinder : BinderBase<AppOptions> {
+      private readonly Option<Int32> _pollingRateOption;
+      private readonly Option<String> _displayInfoOption;
+
+      public AppOptionsBinder(Option<Int32> pollingRateOption, Option<String> displayInfoOption) {
+        _pollingRateOption = pollingRateOption;
+        _displayInfoOption = displayInfoOption;
       }
 
-      Boolean SystemInfo;
-      if (!Boolean.TryParse(ConfigurationManager.AppSettings["SystemInfo.show"], out SystemInfo)) {
-        SystemInfo = false;
+      protected override AppOptions GetBoundValue(System.CommandLine.Binding.BindingContext bindingContext) {
+        return new AppOptions {
+          PollingRate = bindingContext.ParseResult.GetValueForOption(_pollingRateOption),
+          DisplayInfo = Boolean.Parse(bindingContext.ParseResult.GetValueForOption(_displayInfoOption))
+        };
       }
-      
+    }
+
+    static async Task<Int32> Main(String[] args) {
+      Option<Int32> pollingRateOption = new Option<Int32>(
+        aliases: new[] { "-r", "--Polling-Rate" },
+        description: "Millisecond interval at which devices are polled",
+        isDefault: true,
+        parseArgument: result => {
+          Int32 pr;
+          if (!result.Tokens.Any()) { //No value passed to option (or option not specified)
+            if (!Int32.TryParse(ConfigurationManager.AppSettings["Polling-Rate"], out pr)) {
+              pr = 5;
+            }
+          } else {
+            if (!Int32.TryParse(result.Tokens.Single().Value, out pr)) {
+              result.ErrorMessage = "Polling-Rate must be an integer from 1-1000";
+            }
+          }
+          if (pr < 1 || pr > 1000) {
+            result.ErrorMessage = "Polling-Rate must be an integer from 1-1000";
+          }
+          return pr;
+        }
+      );
+      pollingRateOption.ArgumentHelpName = "1-1000";
+      pollingRateOption.Arity = ArgumentArity.ExactlyOne;
+
+      Option<String> displayInfoOption = new Option<String>(
+        aliases: new[] { "-i", "--Display-Info" },
+        description: "Display detailed summary of machine hardware",
+        isDefault: true,
+        parseArgument: result => {
+          Boolean di;
+          if (!result.Tokens.Any()) {
+            if (!Boolean.TryParse(ConfigurationManager.AppSettings["Display-Info"], out di)) {
+              di = true;
+            }
+          } else {
+            if (!Boolean.TryParse(result.Tokens.Single().Value, out di)) {
+              result.ErrorMessage = "Display-Info must be True or False";
+            }
+          }
+          return di.ToString();
+        }
+      );
+      displayInfoOption.ArgumentHelpName = "True|False";
+      displayInfoOption.Arity = ArgumentArity.ExactlyOne;
+
+      RootCommand rootCommand = new RootCommand("Simple Windows Keyboard & Mouse \"State Monitor\" with Logging");
+      rootCommand.AddOption(pollingRateOption);
+      rootCommand.AddOption(displayInfoOption);
+      rootCommand.SetHandler((appOptions) => {
+        Run(appOptions);
+      }, new AppOptionsBinder(pollingRateOption, displayInfoOption));
+
+      Parser parser = new CommandLineBuilder(rootCommand)
+        .UseDefaults()
+        .UseHelp(ctx => {
+          ctx.HelpBuilder.CustomizeSymbol(pollingRateOption, secondColumnText: $"{pollingRateOption.Description} [default: 5]");
+          ctx.HelpBuilder.CustomizeSymbol(displayInfoOption, secondColumnText: $"{displayInfoOption.Description} [default: True]");
+        }).Build();
+
+      return await parser.InvokeAsync(args);
+    }
+
+    static void Run(AppOptions appOptions) {
     //Read Assembly Info
       String AppName = Assembly.GetEntryAssembly().GetName().Name;
       String AppVers = Assembly.GetEntryAssembly().GetName().Version.ToString();
@@ -116,7 +194,7 @@ namespace Stateus {
       File.AppendAllText(FileName, initString + Environment.NewLine + Environment.NewLine);
 
       //System Information
-      if (SystemInfo) {
+      if (appOptions.DisplayInfo) {
         String info = String.Empty;
         using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_BaseBoard")) {
           foreach (ManagementObject obj in searcher.Get()) {
@@ -185,12 +263,12 @@ namespace Stateus {
       IEnumerable<Keys> scanCodes = Enum.GetValues(typeof(Keys)).Cast<Keys>().Except(new Keys[] { Keys.Menu, Keys.ControlKey, Keys.ShiftKey });
 
     //Start main polling loop
-      String pollString = $"Started! Monitoring {scanCodes.Count()} possible scan codes... (polling rate = {PollingRate}ms)";
+      String pollString = $"Started! Monitoring {scanCodes.Count()} possible scan codes... (polling rate = {appOptions.PollingRate}ms)";
       Console.WriteLine(pollString + Environment.NewLine);
       File.AppendAllText(FileName, pollString + Environment.NewLine + Environment.NewLine);
       while (true) {
       //Sleep based on polling rate
-        Thread.Sleep(PollingRate);
+        Thread.Sleep(appOptions.PollingRate);
 
       //Read current input state
         foreach (Keys k in scanCodes) {
