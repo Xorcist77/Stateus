@@ -145,7 +145,7 @@ namespace Stateus {
 
       Option<String> displayInfoOption = new Option<String>(
         aliases: new[] { "-i", "--Display-Info" },
-        description: "Display detailed summary of machine hardware",
+        description: "Flag to show or hide hardware information header",
         isDefault: true,
         parseArgument: result => {
           Boolean di;
