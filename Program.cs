@@ -98,21 +98,25 @@ namespace Stateus {
     public class AppOptions {
       public Int32 PollingRate { get; set; }
       public Boolean DisplayInfo { get; set; }
+      public String LogfilePath { get; set; }
     }
 
     public class AppOptionsBinder : BinderBase<AppOptions> {
       private readonly Option<Int32> _pollingRateOption;
       private readonly Option<String> _displayInfoOption;
+      private readonly Option<String> _logfilePathOption;
 
-      public AppOptionsBinder(Option<Int32> pollingRateOption, Option<String> displayInfoOption) {
+      public AppOptionsBinder(Option<Int32> pollingRateOption, Option<String> displayInfoOption, Option<String> logfilePathOption) {
         _pollingRateOption = pollingRateOption;
         _displayInfoOption = displayInfoOption;
+        _logfilePathOption = logfilePathOption;
       }
 
       protected override AppOptions GetBoundValue(System.CommandLine.Binding.BindingContext bindingContext) {
         return new AppOptions {
           PollingRate = bindingContext.ParseResult.GetValueForOption(_pollingRateOption),
-          DisplayInfo = Boolean.Parse(bindingContext.ParseResult.GetValueForOption(_displayInfoOption))
+          DisplayInfo = Boolean.Parse(bindingContext.ParseResult.GetValueForOption(_displayInfoOption)),
+          LogfilePath = Path.GetFullPath(bindingContext.ParseResult.GetValueForOption(_logfilePathOption))
         };
       }
     }
@@ -124,17 +128,18 @@ namespace Stateus {
         isDefault: true,
         parseArgument: result => {
           Int32 pr;
+          String err = "Polling-Rate must be an integer from 1-1000";
           if (!result.Tokens.Any()) { //No value passed to option (or option not specified)
             if (!Int32.TryParse(ConfigurationManager.AppSettings["Polling-Rate"], out pr)) {
               pr = 5;
             }
           } else {
             if (!Int32.TryParse(result.Tokens.Single().Value, out pr)) {
-              result.ErrorMessage = "Polling-Rate must be an integer from 1-1000";
+              result.ErrorMessage = err;
             }
           }
           if (pr < 1 || pr > 1000) {
-            result.ErrorMessage = "Polling-Rate must be an integer from 1-1000";
+            result.ErrorMessage = err;
           }
           return pr;
         }
@@ -148,13 +153,14 @@ namespace Stateus {
         isDefault: true,
         parseArgument: result => {
           Boolean di;
+          String err = "Display-Info must be True or False";
           if (!result.Tokens.Any()) {
             if (!Boolean.TryParse(ConfigurationManager.AppSettings["Display-Info"], out di)) {
               di = true;
             }
           } else {
             if (!Boolean.TryParse(result.Tokens.Single().Value, out di)) {
-              result.ErrorMessage = "Display-Info must be True or False";
+              result.ErrorMessage = err;
             }
           }
           return di.ToString();
@@ -163,18 +169,51 @@ namespace Stateus {
       displayInfoOption.ArgumentHelpName = "True|False";
       displayInfoOption.Arity = ArgumentArity.ExactlyOne;
 
+      Option<String> logfilePathOption = new Option<String>(
+        aliases: new[] { "-p", "--Logfile-Path" },
+        description: "Path to folder where log files will be generated",
+        isDefault: true,
+        parseArgument: result => {
+          String lf = null;
+          String err = "Logfile-Path must be a valid existing storage location";
+          if (!result.Tokens.Any()) {
+            try {
+              lf = Path.GetFullPath(ConfigurationManager.AppSettings["Logfile-Path"]);
+            }
+            catch {
+              lf = Environment.CurrentDirectory;
+            }
+          } else {
+            try {
+              lf = Path.GetFullPath(result.Tokens.Single().Value);
+            }
+            catch {
+              result.ErrorMessage = err;
+            }
+          }
+          if (!Directory.Exists(lf)) {
+            result.ErrorMessage = err;
+          }
+          return lf;
+        }
+      );
+      logfilePathOption.ArgumentHelpName = "Folder";
+      logfilePathOption.Arity = ArgumentArity.ExactlyOne;
+
       RootCommand rootCommand = new RootCommand("Simple Windows Keyboard & Mouse \"State Monitor\" with Logging");
       rootCommand.AddOption(pollingRateOption);
       rootCommand.AddOption(displayInfoOption);
+      rootCommand.AddOption(logfilePathOption);
       rootCommand.SetHandler((appOptions) => {
         Run(appOptions);
-      }, new AppOptionsBinder(pollingRateOption, displayInfoOption));
+      }, new AppOptionsBinder(pollingRateOption, displayInfoOption, logfilePathOption));
 
       Parser parser = new CommandLineBuilder(rootCommand)
         .UseDefaults()
         .UseHelp(ctx => {
           ctx.HelpBuilder.CustomizeSymbol(pollingRateOption, secondColumnText: $"{pollingRateOption.Description} [default: 5]");
           ctx.HelpBuilder.CustomizeSymbol(displayInfoOption, secondColumnText: $"{displayInfoOption.Description} [default: True]");
+          ctx.HelpBuilder.CustomizeSymbol(logfilePathOption, secondColumnText: $"{logfilePathOption.Description} [default: \".\"]");
         }).Build();
 
       return await parser.InvokeAsync(args);
@@ -187,7 +226,7 @@ namespace Stateus {
 
     //Startup Notification
       Console.Title = $"{AppName} v{AppVers.Substring(0, AppVers.LastIndexOf('.'))}";
-      String FileName = $@"{AppDomain.CurrentDomain.BaseDirectory}\{AppName}_{DateTime.Now.ToString("yyyyMMdd_HHmmss")}.log";
+      String FileName = $@"{appOptions.LogfilePath}\{AppName}_{DateTime.Now.ToString("yyyyMMdd_HHmmss")}.log";
       String initString = $"{Console.Title} - Starting...";
       Console.WriteLine(initString + Environment.NewLine);
       File.AppendAllText(FileName, initString + Environment.NewLine + Environment.NewLine);
