@@ -200,7 +200,8 @@ namespace Stateus {
               result.ErrorMessage = err;
             }
           }
-          if (!Regex.IsMatch (lf, @"^(?:(?:[a-z]:|\\\\[a-z0-9_.$●-]+\\[a-z0-9_.$●-]+)\\|\\?[^\\/:*?""<>|\r\n]+\\?)(?:[^\\/:*?""<>|\r\n]+\\)*[^\\/:*?""<>|\r\n]*$")) {
+        //Handles for Complete, Relative, and UNC path validation
+          if (!Regex.IsMatch (lf, @"^(?:(?:[A-Za-z]:|\\\\[a-z0-9_.$●-]+\\[a-z0-9_.$●-]+)\\|\\?[^\\/:*?""<>|\r\n]+\\?)(?:[^\\/:*?""<>|\r\n]+\\)*[^\\/:*?""<>|\r\n]*$")) {
             result.ErrorMessage = err;
           } else {
             lf = Path.GetFullPath(lf);
