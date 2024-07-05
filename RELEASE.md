@@ -1,0 +1,3 @@
+- Added Logfile-Path command line + configuration file option
+- Consolidated/Refactored logging method and output format
+- Handled continued live time monitoring even if logging fails
