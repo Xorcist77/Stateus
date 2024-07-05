@@ -11,9 +11,12 @@ using System.Linq;
 using System.Management;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace Stateus {
 
@@ -175,24 +178,26 @@ namespace Stateus {
         isDefault: true,
         parseArgument: result => {
           String lf = null;
-          String err = "Logfile-Path must be a valid existing storage location";
+          String err = "Logfile-Path must be a valid storage location";
           if (!result.Tokens.Any()) {
             try {
-              lf = Path.GetFullPath(ConfigurationManager.AppSettings["Logfile-Path"]);
+              lf = ConfigurationManager.AppSettings["Logfile-Path"];
             }
             catch {
               lf = Environment.CurrentDirectory;
             }
           } else {
             try {
-              lf = Path.GetFullPath(result.Tokens.Single().Value);
+              lf = result.Tokens.Single().Value;
             }
             catch {
               result.ErrorMessage = err;
             }
           }
-          if (!Directory.Exists(lf)) {
+          if (!Regex.IsMatch (lf, @"^(?:(?:[a-z]:|\\\\[a-z0-9_.$●-]+\\[a-z0-9_.$●-]+)\\|\\?[^\\/:*?""<>|\r\n]+\\?)(?:[^\\/:*?""<>|\r\n]+\\)*[^\\/:*?""<>|\r\n]*$")) {
             result.ErrorMessage = err;
+          } else {
+            lf = Path.GetFullPath(lf);
           }
           return lf;
         }
@@ -228,8 +233,14 @@ namespace Stateus {
       Console.Title = $"{AppName} v{AppVers.Substring(0, AppVers.LastIndexOf('.'))}";
       String FileName = $@"{appOptions.LogfilePath}\{AppName}_{DateTime.Now.ToString("yyyyMMdd_HHmmss")}.log";
       String initString = $"{Console.Title} - Starting...";
-      Console.WriteLine(initString + Environment.NewLine);
-      File.AppendAllText(FileName, initString + Environment.NewLine + Environment.NewLine);
+      Console.WriteLine($"{initString}{Environment.NewLine}");
+      try {
+        Directory.CreateDirectory(Path.GetDirectoryName(FileName));
+        Console.WriteLine($"Logging to: {FileName}{Environment.NewLine}");
+      }
+      catch (Exception ex) {
+        Console.WriteLine($"{ex.Message}{Environment.NewLine}");
+      }
 
       //System Information
       if (appOptions.DisplayInfo) {
@@ -288,13 +299,11 @@ namespace Stateus {
             info += $"  PTR: {HandleUnknown(obj["Name"])} - {HandleUnknown(obj["Description"])}{Environment.NewLine}";
           }
         }
-        Console.Write(info);
-        File.AppendAllText(FileName, info);
+        Log(FileName, $"{info}{Environment.NewLine}");
       }
 
     //Data Initialization
-      Console.WriteLine();
-      File.AppendAllText(FileName, Environment.NewLine);
+      Log(FileName, Environment.NewLine);
       List<Keys> currInputState = new List<Keys>();
       List<Keys> lastInputState = new List<Keys>();
       List<KeyValuePair<Keys, String>> diffInputState = new List<KeyValuePair<Keys, String>>();
@@ -302,8 +311,7 @@ namespace Stateus {
 
     //Start main polling loop
       String pollString = $"Started! Monitoring {scanCodes.Count()} possible scan codes... (polling rate = {appOptions.PollingRate}ms)";
-      Console.WriteLine(pollString + Environment.NewLine);
-      File.AppendAllText(FileName, pollString + Environment.NewLine + Environment.NewLine);
+      Log(FileName, $"{pollString}{Environment.NewLine}{Environment.NewLine}");
       while (true) {
       //Sleep based on polling rate
         Thread.Sleep(appOptions.PollingRate);
@@ -354,8 +362,7 @@ namespace Stateus {
         if (!Enumerable.SequenceEqual(currInputState.OrderBy(e => e), lastInputState.OrderBy(e => e))) {
           IEnumerable<String> keyStates = diffInputState.Select(x => $"{KeyCodeMap(x.Key, false)}{x.Value}");
           String stateString = $"  {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss:ffff")}  {String.Join(" ", keyStates)}";
-          Console.WriteLine(stateString);
-          File.AppendAllText(FileName, stateString + Environment.NewLine);
+          Log(FileName, $"{stateString}{Environment.NewLine}");
           lastInputState = currInputState.ToList();
         }
 
@@ -363,6 +370,12 @@ namespace Stateus {
 
     }
 
+    static void Log(String file, String line) {
+      Console.Write(line);
+      if (true) {
+        File.AppendAllText(file, line);
+      }
+    }
   }
 
 }
