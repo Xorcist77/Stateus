@@ -33,6 +33,12 @@ namespace Stateus {
       return (String.IsNullOrEmpty(str)) ? "Unknown" : str;
     }
 
+    enum LogMode {
+      All,
+      Console,
+      LogFile,
+    }
+
     static String MemTypeMap(Int32 memType) {
       switch (memType) {
         case 1: return "Other";
@@ -229,17 +235,22 @@ namespace Stateus {
       String AppName = Assembly.GetEntryAssembly().GetName().Name;
       String AppVers = Assembly.GetEntryAssembly().GetName().Version.ToString();
 
+      //General Logging Scheme
+      LogMode logMode = LogMode.All;
+
     //Startup Notification
       Console.Title = $"{AppName} v{AppVers.Substring(0, AppVers.LastIndexOf('.'))}";
       String FileName = $@"{appOptions.LogfilePath}\{AppName}_{DateTime.Now.ToString("yyyyMMdd_HHmmss")}.log";
-      String initString = $"{Console.Title} - Starting...";
-      Console.WriteLine($"{initString}{Environment.NewLine}");
+      String initString = $"{Console.Title} - Starting...{Environment.NewLine}{Environment.NewLine}[POLLING RATE] - {appOptions.PollingRate}ms";
+      Log(FileName,$"{initString}{Environment.NewLine}{Environment.NewLine}", LogMode.Console);
       try {
         Directory.CreateDirectory(Path.GetDirectoryName(FileName));
-        Console.WriteLine($"Logging to: {FileName}{Environment.NewLine}");
+        Log(FileName, $"{initString}{Environment.NewLine}{Environment.NewLine}", LogMode.LogFile);
+        Log(FileName, $"[LOGFILE PATH] - Initializating Log File...{Environment.NewLine}  {FileName}{Environment.NewLine}{Environment.NewLine}", LogMode.Console);
       }
       catch (Exception ex) {
-        Console.WriteLine($"{ex.Message}{Environment.NewLine}");
+        Log(FileName, $"[LOGFILE PATH] - Initializating Log File...{Environment.NewLine}  ERR: {ex.Message}{Environment.NewLine}{Environment.NewLine}", LogMode.Console);
+        logMode = LogMode.Console;
       }
 
       //System Information
@@ -247,12 +258,12 @@ namespace Stateus {
         String info = String.Empty;
         using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_BaseBoard")) {
           foreach (ManagementObject obj in searcher.Get()) {
-            info += $" MOBO: {HandleUnknown(obj["Manufacturer"])} - {HandleUnknown(obj["Product"])}{Environment.NewLine}";
+            info += $"  MBD: {HandleUnknown(obj["Manufacturer"])} - {HandleUnknown(obj["Product"])}{Environment.NewLine}";
           }
         }
         using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_OperatingSystem")) {
           foreach (ManagementObject obj in searcher.Get()) {
-            info += $"   OS: {HandleUnknown(obj["Caption"])} - {HandleUnknown(obj["OSArchitecture"])} (v{HandleUnknown(obj["Version"])}){Environment.NewLine}";
+            info += $"  OPS: {HandleUnknown(obj["Caption"])} - {HandleUnknown(obj["OSArchitecture"])} (v{HandleUnknown(obj["Version"])}){Environment.NewLine}";
           }
         }
         using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_Processor")) {
@@ -299,19 +310,18 @@ namespace Stateus {
             info += $"  PTR: {HandleUnknown(obj["Name"])} - {HandleUnknown(obj["Description"])}{Environment.NewLine}";
           }
         }
-        Log(FileName, $"{info}{Environment.NewLine}");
+        Log(FileName, $"[SYSTEM SPECS] - Querying Hardware Devices...{Environment.NewLine}{info}{Environment.NewLine}", logMode);
       }
 
     //Data Initialization
-      Log(FileName, Environment.NewLine);
       List<Keys> currInputState = new List<Keys>();
       List<Keys> lastInputState = new List<Keys>();
       List<KeyValuePair<Keys, String>> diffInputState = new List<KeyValuePair<Keys, String>>();
       IEnumerable<Keys> scanCodes = Enum.GetValues(typeof(Keys)).Cast<Keys>().Except(new Keys[] { Keys.Menu, Keys.ControlKey, Keys.ShiftKey });
 
     //Start main polling loop
-      String pollString = $"Started! Monitoring {scanCodes.Count()} possible scan codes... (polling rate = {appOptions.PollingRate}ms)";
-      Log(FileName, $"{pollString}{Environment.NewLine}{Environment.NewLine}");
+      String pollString = $"[RECORD INPUT] - Monitoring Input Devices...{Environment.NewLine}";
+      Log(FileName, $"{pollString}", logMode);
       while (true) {
       //Sleep based on polling rate
         Thread.Sleep(appOptions.PollingRate);
@@ -362,7 +372,7 @@ namespace Stateus {
         if (!Enumerable.SequenceEqual(currInputState.OrderBy(e => e), lastInputState.OrderBy(e => e))) {
           IEnumerable<String> keyStates = diffInputState.Select(x => $"{KeyCodeMap(x.Key, false)}{x.Value}");
           String stateString = $"  {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss:ffff")}  {String.Join(" ", keyStates)}";
-          Log(FileName, $"{stateString}{Environment.NewLine}");
+          Log(FileName, $"{stateString}{Environment.NewLine}", logMode);
           lastInputState = currInputState.ToList();
         }
 
@@ -370,10 +380,18 @@ namespace Stateus {
 
     }
 
-    static void Log(String file, String line) {
-      Console.Write(line);
-      if (true) {
-        File.AppendAllText(file, line);
+    static void Log(String file, String line, LogMode mode = LogMode.All) {
+      switch (mode) {
+        case LogMode.All:
+          Console.Write(line);
+          File.AppendAllText(file, line);
+          break;
+        case LogMode.Console:
+          Console.Write(line);
+          break;
+        case LogMode.LogFile:
+          File.AppendAllText(file, line);
+          break;
       }
     }
   }
