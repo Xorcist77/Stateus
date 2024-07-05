@@ -11,9 +11,12 @@ using System.Linq;
 using System.Management;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace Stateus {
 
@@ -28,6 +31,12 @@ namespace Stateus {
     static String HandleUnknown(Object val) {
       String str = ((String)val).Trim();
       return (String.IsNullOrEmpty(str)) ? "Unknown" : str;
+    }
+
+    enum LogMode {
+      All,
+      Console,
+      LogFile,
     }
 
     static String MemTypeMap(Int32 memType) {
@@ -98,21 +107,25 @@ namespace Stateus {
     public class AppOptions {
       public Int32 PollingRate { get; set; }
       public Boolean DisplayInfo { get; set; }
+      public String LogfilePath { get; set; }
     }
 
     public class AppOptionsBinder : BinderBase<AppOptions> {
       private readonly Option<Int32> _pollingRateOption;
       private readonly Option<String> _displayInfoOption;
+      private readonly Option<String> _logfilePathOption;
 
-      public AppOptionsBinder(Option<Int32> pollingRateOption, Option<String> displayInfoOption) {
+      public AppOptionsBinder(Option<Int32> pollingRateOption, Option<String> displayInfoOption, Option<String> logfilePathOption) {
         _pollingRateOption = pollingRateOption;
         _displayInfoOption = displayInfoOption;
+        _logfilePathOption = logfilePathOption;
       }
 
       protected override AppOptions GetBoundValue(System.CommandLine.Binding.BindingContext bindingContext) {
         return new AppOptions {
           PollingRate = bindingContext.ParseResult.GetValueForOption(_pollingRateOption),
-          DisplayInfo = Boolean.Parse(bindingContext.ParseResult.GetValueForOption(_displayInfoOption))
+          DisplayInfo = Boolean.Parse(bindingContext.ParseResult.GetValueForOption(_displayInfoOption)),
+          LogfilePath = Path.GetFullPath(bindingContext.ParseResult.GetValueForOption(_logfilePathOption))
         };
       }
     }
@@ -124,17 +137,18 @@ namespace Stateus {
         isDefault: true,
         parseArgument: result => {
           Int32 pr;
+          String err = "Polling-Rate must be an integer from 1-1000";
           if (!result.Tokens.Any()) { //No value passed to option (or option not specified)
             if (!Int32.TryParse(ConfigurationManager.AppSettings["Polling-Rate"], out pr)) {
               pr = 5;
             }
           } else {
             if (!Int32.TryParse(result.Tokens.Single().Value, out pr)) {
-              result.ErrorMessage = "Polling-Rate must be an integer from 1-1000";
+              result.ErrorMessage = err;
             }
           }
           if (pr < 1 || pr > 1000) {
-            result.ErrorMessage = "Polling-Rate must be an integer from 1-1000";
+            result.ErrorMessage = err;
           }
           return pr;
         }
@@ -148,13 +162,14 @@ namespace Stateus {
         isDefault: true,
         parseArgument: result => {
           Boolean di;
+          String err = "Display-Info must be True or False";
           if (!result.Tokens.Any()) {
             if (!Boolean.TryParse(ConfigurationManager.AppSettings["Display-Info"], out di)) {
               di = true;
             }
           } else {
             if (!Boolean.TryParse(result.Tokens.Single().Value, out di)) {
-              result.ErrorMessage = "Display-Info must be True or False";
+              result.ErrorMessage = err;
             }
           }
           return di.ToString();
@@ -163,18 +178,54 @@ namespace Stateus {
       displayInfoOption.ArgumentHelpName = "True|False";
       displayInfoOption.Arity = ArgumentArity.ExactlyOne;
 
+      Option<String> logfilePathOption = new Option<String>(
+        aliases: new[] { "-p", "--Logfile-Path" },
+        description: "Path to folder where log files will be generated",
+        isDefault: true,
+        parseArgument: result => {
+          String lf = null;
+          String err = "Logfile-Path must be a valid storage location";
+          if (!result.Tokens.Any()) {
+            try {
+              lf = ConfigurationManager.AppSettings["Logfile-Path"];
+            }
+            catch {
+              lf = Environment.CurrentDirectory;
+            }
+          } else {
+            try {
+              lf = result.Tokens.Single().Value;
+            }
+            catch {
+              result.ErrorMessage = err;
+            }
+          }
+        //Handles for Complete, Relative, and UNC path validation
+          if (!Regex.IsMatch (lf, @"^(?:(?:[A-Za-z]:|\\\\[a-z0-9_.$●-]+\\[a-z0-9_.$●-]+)\\|\\?[^\\/:*?""<>|\r\n]+\\?)(?:[^\\/:*?""<>|\r\n]+\\)*[^\\/:*?""<>|\r\n]*$")) {
+            result.ErrorMessage = err;
+          } else {
+            lf = Path.GetFullPath(lf);
+          }
+          return lf;
+        }
+      );
+      logfilePathOption.ArgumentHelpName = "Folder";
+      logfilePathOption.Arity = ArgumentArity.ExactlyOne;
+
       RootCommand rootCommand = new RootCommand("Simple Windows Keyboard & Mouse \"State Monitor\" with Logging");
       rootCommand.AddOption(pollingRateOption);
       rootCommand.AddOption(displayInfoOption);
+      rootCommand.AddOption(logfilePathOption);
       rootCommand.SetHandler((appOptions) => {
         Run(appOptions);
-      }, new AppOptionsBinder(pollingRateOption, displayInfoOption));
+      }, new AppOptionsBinder(pollingRateOption, displayInfoOption, logfilePathOption));
 
       Parser parser = new CommandLineBuilder(rootCommand)
         .UseDefaults()
         .UseHelp(ctx => {
           ctx.HelpBuilder.CustomizeSymbol(pollingRateOption, secondColumnText: $"{pollingRateOption.Description} [default: 5]");
           ctx.HelpBuilder.CustomizeSymbol(displayInfoOption, secondColumnText: $"{displayInfoOption.Description} [default: True]");
+          ctx.HelpBuilder.CustomizeSymbol(logfilePathOption, secondColumnText: $"{logfilePathOption.Description} [default: \".\"]");
         }).Build();
 
       return await parser.InvokeAsync(args);
@@ -185,24 +236,35 @@ namespace Stateus {
       String AppName = Assembly.GetEntryAssembly().GetName().Name;
       String AppVers = Assembly.GetEntryAssembly().GetName().Version.ToString();
 
+      //General Logging Scheme
+      LogMode logMode = LogMode.All;
+
     //Startup Notification
       Console.Title = $"{AppName} v{AppVers.Substring(0, AppVers.LastIndexOf('.'))}";
-      String FileName = $@"{AppDomain.CurrentDomain.BaseDirectory}\{AppName}_{DateTime.Now.ToString("yyyyMMdd_HHmmss")}.log";
-      String initString = $"{Console.Title} - Starting...";
-      Console.WriteLine(initString + Environment.NewLine);
-      File.AppendAllText(FileName, initString + Environment.NewLine + Environment.NewLine);
+      String FileName = $@"{appOptions.LogfilePath}\{AppName}_{DateTime.Now.ToString("yyyyMMdd_HHmmss")}.log";
+      String initString = $"{Console.Title} - Starting...{Environment.NewLine}{Environment.NewLine}[POLLING RATE] - {appOptions.PollingRate}ms";
+      Log(FileName,$"{initString}{Environment.NewLine}{Environment.NewLine}", LogMode.Console);
+      try {
+        Directory.CreateDirectory(Path.GetDirectoryName(FileName));
+        Log(FileName, $"{initString}{Environment.NewLine}{Environment.NewLine}", LogMode.LogFile);
+        Log(FileName, $"[LOGFILE PATH] - Initializating Log File...{Environment.NewLine}  {FileName}{Environment.NewLine}{Environment.NewLine}", LogMode.Console);
+      }
+      catch (Exception ex) {
+        Log(FileName, $"[LOGFILE PATH] - Initializating Log File...{Environment.NewLine}  ERR: {ex.Message}{Environment.NewLine}{Environment.NewLine}", LogMode.Console);
+        logMode = LogMode.Console;
+      }
 
       //System Information
       if (appOptions.DisplayInfo) {
         String info = String.Empty;
         using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_BaseBoard")) {
           foreach (ManagementObject obj in searcher.Get()) {
-            info += $" MOBO: {HandleUnknown(obj["Manufacturer"])} - {HandleUnknown(obj["Product"])}{Environment.NewLine}";
+            info += $"  MBD: {HandleUnknown(obj["Manufacturer"])} - {HandleUnknown(obj["Product"])}{Environment.NewLine}";
           }
         }
         using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_OperatingSystem")) {
           foreach (ManagementObject obj in searcher.Get()) {
-            info += $"   OS: {HandleUnknown(obj["Caption"])} - {HandleUnknown(obj["OSArchitecture"])} (v{HandleUnknown(obj["Version"])}){Environment.NewLine}";
+            info += $"  OPS: {HandleUnknown(obj["Caption"])} - {HandleUnknown(obj["OSArchitecture"])} (v{HandleUnknown(obj["Version"])}){Environment.NewLine}";
           }
         }
         using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("select * from Win32_Processor")) {
@@ -249,22 +311,18 @@ namespace Stateus {
             info += $"  PTR: {HandleUnknown(obj["Name"])} - {HandleUnknown(obj["Description"])}{Environment.NewLine}";
           }
         }
-        Console.Write(info);
-        File.AppendAllText(FileName, info);
+        Log(FileName, $"[SYSTEM SPECS] - Querying Hardware Devices...{Environment.NewLine}{info}{Environment.NewLine}", logMode);
       }
 
     //Data Initialization
-      Console.WriteLine();
-      File.AppendAllText(FileName, Environment.NewLine);
       List<Keys> currInputState = new List<Keys>();
       List<Keys> lastInputState = new List<Keys>();
       List<KeyValuePair<Keys, String>> diffInputState = new List<KeyValuePair<Keys, String>>();
       IEnumerable<Keys> scanCodes = Enum.GetValues(typeof(Keys)).Cast<Keys>().Except(new Keys[] { Keys.Menu, Keys.ControlKey, Keys.ShiftKey });
 
     //Start main polling loop
-      String pollString = $"Started! Monitoring {scanCodes.Count()} possible scan codes... (polling rate = {appOptions.PollingRate}ms)";
-      Console.WriteLine(pollString + Environment.NewLine);
-      File.AppendAllText(FileName, pollString + Environment.NewLine + Environment.NewLine);
+      String pollString = $"[RECORD INPUT] - Monitoring Input Devices...{Environment.NewLine}";
+      Log(FileName, $"{pollString}", logMode);
       while (true) {
       //Sleep based on polling rate
         Thread.Sleep(appOptions.PollingRate);
@@ -315,8 +373,7 @@ namespace Stateus {
         if (!Enumerable.SequenceEqual(currInputState.OrderBy(e => e), lastInputState.OrderBy(e => e))) {
           IEnumerable<String> keyStates = diffInputState.Select(x => $"{KeyCodeMap(x.Key, false)}{x.Value}");
           String stateString = $"  {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss:ffff")}  {String.Join(" ", keyStates)}";
-          Console.WriteLine(stateString);
-          File.AppendAllText(FileName, stateString + Environment.NewLine);
+          Log(FileName, $"{stateString}{Environment.NewLine}", logMode);
           lastInputState = currInputState.ToList();
         }
 
@@ -324,6 +381,20 @@ namespace Stateus {
 
     }
 
+    static void Log(String file, String line, LogMode mode = LogMode.All) {
+      switch (mode) {
+        case LogMode.All:
+          Console.Write(line);
+          File.AppendAllText(file, line);
+          break;
+        case LogMode.Console:
+          Console.Write(line);
+          break;
+        case LogMode.LogFile:
+          File.AppendAllText(file, line);
+          break;
+      }
+    }
   }
 
 }
