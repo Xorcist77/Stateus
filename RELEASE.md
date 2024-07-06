@@ -1,3 +1,1 @@
-- Added Logfile-Path command line + configuration file option
-- Consolidated/Refactored logging method and output format
-- Handled continued live time monitoring even if logging fails
+- Fixed bug pertaining to defaulting of Logfile-Path when no option is supplied either through command-line or configuration.

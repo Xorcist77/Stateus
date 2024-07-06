@@ -6,6 +6,7 @@ using System.CommandLine.Builder;
 using System.CommandLine.Help;
 using System.CommandLine.Parsing;
 using System.Configuration;
+using System.Diagnostics.Eventing.Reader;
 using System.IO;
 using System.Linq;
 using System.Management;
@@ -185,12 +186,10 @@ namespace Stateus {
         parseArgument: result => {
           String lf = null;
           String err = "Logfile-Path must be a valid storage location";
-          if (!result.Tokens.Any()) {
-            try {
-              lf = ConfigurationManager.AppSettings["Logfile-Path"];
-            }
-            catch {
-              lf = Environment.CurrentDirectory;
+          if (!result.Tokens.Any()) {  
+            lf = ConfigurationManager.AppSettings["Logfile-Path"];
+            if (lf == null) {
+              lf = Path.Combine(Environment.CurrentDirectory, "logs");
             }
           } else {
             try {
@@ -225,7 +224,7 @@ namespace Stateus {
         .UseHelp(ctx => {
           ctx.HelpBuilder.CustomizeSymbol(pollingRateOption, secondColumnText: $"{pollingRateOption.Description} [default: 5]");
           ctx.HelpBuilder.CustomizeSymbol(displayInfoOption, secondColumnText: $"{displayInfoOption.Description} [default: True]");
-          ctx.HelpBuilder.CustomizeSymbol(logfilePathOption, secondColumnText: $"{logfilePathOption.Description} [default: \".\"]");
+          ctx.HelpBuilder.CustomizeSymbol(logfilePathOption, secondColumnText: $@"{logfilePathOption.Description} [default: .\logs");
         }).Build();
 
       return await parser.InvokeAsync(args);
