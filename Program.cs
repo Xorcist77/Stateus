@@ -224,7 +224,7 @@ namespace Stateus {
         .UseHelp(ctx => {
           ctx.HelpBuilder.CustomizeSymbol(pollingRateOption, secondColumnText: $"{pollingRateOption.Description} [default: 5]");
           ctx.HelpBuilder.CustomizeSymbol(displayInfoOption, secondColumnText: $"{displayInfoOption.Description} [default: True]");
-          ctx.HelpBuilder.CustomizeSymbol(logfilePathOption, secondColumnText: $@"{logfilePathOption.Description} [default: .\logs");
+          ctx.HelpBuilder.CustomizeSymbol(logfilePathOption, secondColumnText: $@"{logfilePathOption.Description} [default: .\logs]");
         }).Build();
 
       return await parser.InvokeAsync(args);
